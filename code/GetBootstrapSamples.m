@@ -4,7 +4,7 @@
 % precent_test: the percent of the data used for testing
 % num_examples_used: if given, it will only use this many examples for each split.
 %
-function bootstrapSamples = GetBootstrapSamples(train_imgs, train_classes, num_sets=3, percent_test=0.3, num_examples_used=0)
+function bootstrapSamples = GetBootstrapSamples(train_imgs, train_classes, num_sets, percent_test=0.3, num_examples_used=0)
 
   bootstrapSamples = {};
   N = ifelse(iscell(train_imgs), length(train_imgs), rows(train_imgs));

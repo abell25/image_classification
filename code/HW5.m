@@ -71,21 +71,22 @@ function plot_scores(scores, cv_scores, params, labels)
 endfunction
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% running parameter sweep %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
+printf('starting\n');
 start_time = time();
+fflush(stdout);
 
 labels = {'patches per image', 'patch dim', 'num color buckets', 'num centers', 'num examples'};
-patches_per_image_list = [50, 200];
-patch_dim_list = [30, 40, 50];
+patches_per_image_list = [50];
+patch_dim_list = [30];
 num_color_buckets_list = [4];
-num_centers_list = [100,500,1000];
-num_examples_list = [160];
-use_parallel = 1;
+num_centers_list = [500];
+num_examples_list = [16];
+use_parallel = 0;
 
 parameters = {patches_per_image_list, patch_dim_list, num_color_buckets_list, num_centers_list, num_examples_list};
 
 [scores, cv_scores, params, total_times] = ParameterSweep(@Pipeline, train_imgs, test_imgs, train_classes, test_classes, ...
-                                              parameters, num_splits=3, test_percent=0.4, use_parallel)
+                                              parameters, num_splits=1, test_percent=0.25, use_parallel)
 
 
 ranked = flipud(sortrows([params scores' total_times'], columns(params)+1));
@@ -95,6 +96,7 @@ ranked_times = ranked(:,columns(params)+2);
 
 end_time = time();
 printf('finished parameter sweep in %.2f seconds!\n', end_time-start_time);
+fflush(stdout);
 
 figure(1);
 plot_scores(scores, cv_scores, params, labels);
@@ -102,7 +104,7 @@ figure(2);
 plot_scores(scores, cv_scores, params, labels);
 
 start_validation = time();
-n_best_to_try = 8;
+n_best_to_try = 0;
 n_best_to_try = min(rows(params), n_best_to_try);
 printf('using the best %d parameters to predict on the validation set\n', n_best_to_try);
 
@@ -110,14 +112,16 @@ f = @(k) Predict(@Pipeline, train_imgs, test_imgs, ...
                  train_classes, test_classes, args=ranked_params(k,:));
 
 if use_parallel,
-    [validation_scores, predictions] = pararrayfun(nproc, f, [1:n_best_to_try], 'UniformOutput', true);
+    [validation_scores_arr, predictions_arr] = pararrayfun(min(nproc, n_best_to_try), f, [1:n_best_to_try], 'UniformOutput', false);
 else
-    [validation_scores, predictions] = arrayfun(f, [1:n_best_to_try], 'UniformOutput', true);
+    [validation_scores_arr, predictions_arr] = arrayfun(f, [1:n_best_to_try], 'UniformOutput', false);
 end
 
+for k=1:n_best_to_try, validation_scores(k) = validation_scores_arr{k}; end
 validation_params = ranked_params(1:n_best_to_try,1:columns(params)-1);
 
 validation_scores
+[best_score best_score_index] = max(validation_scores);
 printf('best parameters on the validation set scored %.2f\n', max(validation_scores));
 
 figure(2);
@@ -126,3 +130,6 @@ figure(3);
 plot_scores(validation_scores, [], validation_params, labels(1:end-1));
 
 printf('finished validation in %.2f seconds!\n', time() - start_validation);
+[confusionMatrix, class_accuracy, class_sensitivity, class_precision] = ...
+        confusionMatrix(test_classes', predictions_arr{best_score_index}', 4)
+

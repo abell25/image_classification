@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CV_HW5__anthony_bell</title>
+<link rel="stylesheet" href="https://stackedit.io/res-min/themes/base.css" />
+<script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS_HTML"></script>
+</head>
+<body><div class="container"><h1 id="image-classification">Image Classification</h1>
+
+<blockquote>
+  <p><strong>Author:</strong> Anthony Bell <br>
+  Creating a image classification pipeline in octave/matlab.</p>
+</blockquote>
+
+<p><div class="toc">
+<ul>
+<li><a href="#image-classification">Image Classification</a><ul>
+<li><a href="#int">INt</a></li>
+<li><a href="#0-loading-the-image-dataset">0. Loading the Image Dataset</a></li>
+<li><a href="#1-feature-extraction">1. Feature Extraction</a></li>
+<li><a href="#2-feature-description">2. Feature Description</a></li>
+<li><a href="#3-dictionary-computation">3. Dictionary Computation</a></li>
+<li><a href="#4-feature-quantization">4. Feature Quantization</a></li>
+<li><a href="#5-classifier-training">5. Classifier Training</a></li>
+<li><a href="#6-results">6. Results</a></li>
+<li><a href="#7-conclusion">7. Conclusion</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</p>
+
+
+
+<h2 id="introduction">Introduction</h2>
+
+<p>The goal for this project is to create a image classification pipeline, where training images, training images labels, and test images are input and the test images’ category labels are output.  We also have the test images’ actual category labels to measure the accuracy of our model.</p>
+
+<p>The main pipeline function can be found in <code>Pipeline.m</code>.  </p>
+
+<p>The main stages of the pipeline are essentially:</p>
+
+<ol>
+<li>Extracting patches from the images</li>
+<li>Extracting features from the patches</li>
+<li>Create a dictionary by clustering the features</li>
+<li>Use dictionary to quantize features to a single vector.</li>
+<li>Run machine learning algorithm on these quantized feature vectors.</li>
+</ol>
+
+<p>Since different algorithms could be plugged in at each stage of the pipeline, we decoupled the methods of the pipeline from the actual implementation. Here are the functions for each stage (in <code>Pipeline.m</code>):</p>
+
+<pre class="prettyprint"><code class=" hljs matlab"><span class="hljs-function"><span class="hljs-keyword">function</span> <span class="hljs-params">[patches]</span> = <span class="hljs-title">GetPatches</span><span class="hljs-params">(images, num_patches, patch_dim)</span></span>
+<span class="hljs-function"><span class="hljs-keyword">function</span> <span class="hljs-params">[hists]</span> = <span class="hljs-title">GetFeaturesForPatches</span><span class="hljs-params">(patches, num_buckets)</span></span>
+<span class="hljs-function"><span class="hljs-keyword">function</span> <span class="hljs-params">[centers]</span> = <span class="hljs-title">GetClusters</span><span class="hljs-params">(hists_matrix, num_centers)</span></span>
+<span class="hljs-function"><span class="hljs-keyword">function</span> <span class="hljs-title">final_features</span> = <span class="hljs-title">GetCenterFeatures</span><span class="hljs-params">(center_distances)</span></span>
+<span class="hljs-function"><span class="hljs-keyword">function</span> <span class="hljs-params">[y_pred, score]</span> = <span class="hljs-title">TrainAndClassify</span><span class="hljs-params">(X_train, X_test, y_train, y_test)</span></span></code></pre>
+
+<p></p><center>The interface of the stages of the image category classification pipeline.</center><p></p>
+
+<h2 id="0-loading-the-image-dataset">0. Loading the Image Dataset</h2>
+
+<p>The dataset is stored in folders named with the following convention <code>[category_name]_[train|validation]</code>.   We loaded all images of type <code>train</code> into an array and all images of type <code>validation</code> into another array.  We assigned an arbitrary value for each class and kept a separate list of categories while we loaded the images for the train and validation arrays.  Since most images were color, if we encountered a single channel image, we simply mapped it to 3 channels with the same value in all three chanels.  <code>TrainTestSplitImages.m</code> contains the function that loads all the images and generates the train and test sets with their labels.  The images are in 4 categories where each category is in it’s own row shown here: <br>
+<img src="https://lh3.googleusercontent.com/-nQFv2EuAiT4/VU71gfVIFMI/AAAAAAAAAGQ/AV3n19LlWvU/s0/trainingAllClasses.jpg" alt="rawImagesRowPerClass" title="trainingAllClasses.jpg"> <br>
+</p><center>The 4 categories of the classification task: airplanes, cars, people, motorcycles.</center><p></p>
+
+<h2 id="1-feature-extraction">1. Feature Extraction</h2>
+
+<p>Once we had all the images loaded, we extracted patches for each image.  We used random sub-patches, so the number of sub-patches to extract per image became a hyper-parameter, in addition to the size of the patch. <br>
+The randomized patches are shown here, one category per row like the image above. <br>
+<img src="https://lh3.googleusercontent.com/-bq09eR3Hwno/VU706-sxgYI/AAAAAAAAAGE/nXJkjV1r8F0/s0/shuffledAllClasses.jpg" alt="randomPatches" title="shuffledAllClasses.jpg"> <br>
+</p><center>Visualization of the random patches (25x25 pixel patches 100 patches per image) where the each row corresponds to planes, cars, people, and motorcycles respectively.</center><p></p>
+
+<h2 id="2-feature-description">2. Feature Description</h2>
+
+<p>Once the patches are obtained, the second stage is extracting features from the patches.  Just from the color, you can see some patterns that distinguish the classes (e.g. car images have a lot of gray typically and plane images have a lot of blue typically) so for this stage the pipeline used a color histogram.  The rgb colorspace was partitioned into bins, reducing the range <code>0-255</code> to <code>0-num_color_bins</code>  for each of the 3 colors where <code>num_color_bins</code> is a hyper-parameter.  This converted the dimension of each rgb pixel from <script type="math/tex" id="MathJax-Element-205">256^3</script> to <code>num_color_bins</code><script type="math/tex" id="MathJax-Element-206">^3</script>.   We calculated a histogram for each patch, generating 1 vector of length <code>num_color_bins</code><script type="math/tex" id="MathJax-Element-207">^3</script> for each patch.</p>
+
+<h2 id="3-dictionary-computation">3. Dictionary Computation</h2>
+
+<p>For this stage, I used k-means to calculate a dictionary, where a matrix of all color histograms for all training image patches was input.  K-means used random restart if a cluster became empty.  The number of clusters was a hyperparameter for this stage.</p>
+
+<h2 id="4-feature-quantization">4. Feature Quantization</h2>
+
+<p>Once the centers for the clusters were calculated, we computed the distances from all patch histograms for the training and test set using l2 distance (the code is in <code>GetDistances.m</code>).  We computed the closest cluster for each patch histogram to obtain the cluster index and then generated a histogram for each image with these index counts.  The code to generate the histogram from the distances is in <code>GetCenterHists.m</code>.  </p>
+
+<h2 id="5-classifier-training">5. Classifier Training</h2>
+
+<p>Once we had 1 vector of features per image, we were able to build a classifier on top of it.  We used the libsvm implementation for a support vector machine.  I choose a support vector machine because the dataset is not too large and svm’s typically perform well although we could have used any classifier really.  Since we have no idea what hyper-parameters work well, we resolved to tuning the hyper-parameters on the training set to find the best values.  </p>
+
+<p>We first had to generate combinations of values to try.  <code>ParameterSweep</code> in <code>HW5.m</code> takes a list of each of the hyper-parameters (patches per image, patch dimensions, number of color buckets, and number of cluster centers) and generates all possible combinations to try.  We use random splits of the training data to test the quality of a given set of hyper-parameters.  To get more reliable scores, we used 3 different random splits instead of 1 for each hyper-parameter and averaged the resulting score.  Without this step, our tuning process will likely pick an overly optimistic set of values. </p>
+
+<p>In order to speed up computation of the parameter sweep, we used <code>pararrayfun</code> in the <code>parallel</code> package to use 8 cores instead of 1 core.  This gave a 2x-3x speed-up (quite far from 8x for some reason).</p>
+
+<p>The first round of parameter sweeps varied the number of patches per image, patch dimension, and number of centers for clustering.  We used 3 splits for each combination of parameters.  The number of examples used for splits was also varied to see how number of examples affected the score.  The results are shown here (blue x’s are individual scores for each split, while the red x’s are the average value for each parameter combination): <br>
+<img src="https://lh3.googleusercontent.com/-H6sMP-qJpjw/VU-kbyGbttI/AAAAAAAAAG4/0CcXRFAHsXE/s0/paramSweep1.jpg" alt="parameter sweep round 1" title="paramSweep1.jpg"> <br>
+</p><center>First parameter sweep over patches/image, patch dimension, number of centers, and number of examples used for the splits.</center> <br>
+As expected, more examples used increases the score and reduces variance.  More centers seems to improve performance over this range.    It’s a little suprising that too many patches per image seems to give a worse score. <p></p>
+
+<p>The second round of parameter sweeps use a range of color bin sizes and a larger range of number of centers for clusters, shown here:</p>
+
+<p><img src="https://lh3.googleusercontent.com/-i66A2e1nMEI/VU-u0MyO-kI/AAAAAAAAAHY/X0WL79XRCP4/s0/paramSweep2.jpg" alt="parameter sweep round 2" title="paramSweep2.jpg"> <br>
+</p><center>2nd round of parameter sweeps</center><p></p>
+
+<p>The other values were not changes for the interest of time.  4 appears to be the best number of bins for colors.  The number of centers does not appear to change much  over this range.  When the number of bins is 4, the score hovers right at 60% for any number of centers in the range 100-1000.    We ran one more parameter sweep before moving to testing on the validation set.  Here are the results (dots are individual cross validation scores, x’s are the means as before). <br>
+<img src="https://lh3.googleusercontent.com/-kRX3hQ_g7As/VVAxVo5KJpI/AAAAAAAAAII/5jmI4a2IDt0/s0/paramSweep4.jpg" alt="finalSweep" title="paramSweep4.jpg"> <br>
+</p><center>Final parameter sweep</center><p></p>
+
+<h2 id="6-results">6. Results</h2>
+
+<p>Once we found the best hyper-parameters on random splits of the training set, we trained the pipeline with the 8 best hyper-parameter values on the validation images.</p>
+
+<p>The <strong>best score on the validation set obtained was 74.5%.</strong> The 8 scores on the validation set were 74.5%, 71.75%, 71%, 71%, 70.25%, 69.75%, 64.25%, and 29.75%.  The parameters used for these values are shown here: <br>
+<img src="https://lh3.googleusercontent.com/-n235WytK1fo/VVAwVax4EiI/AAAAAAAAAH8/1m18iY_N6LE/s0/paramSweep4Validation.jpg" alt="best parameter sweep validation used on the validation images" title="paramSweep4Validation.jpg"></p>
+
+<p>The best scoring model had the hyper-parameters: </p>
+
+<ul>
+<li>number of patches per image: 200</li>
+<li>patch dimension: 50x50</li>
+<li>number of buckets per color channel: 4</li>
+<li>number of centers per clusters: 500</li>
+</ul>
+
+<p>The confusion matrix for the best scoring model was:</p>
+
+<table>
+<thead>
+<tr>
+  <th></th>
+  <th>plane</th>
+  <th>car</th>
+  <th>person</th>
+  <th>motorcycle</th>
+</tr>
+</thead>
+<tbody><tr>
+  <td><strong>plane</strong></td>
+  <td>68</td>
+  <td>6</td>
+  <td>23</td>
+  <td>3</td>
+</tr>
+<tr>
+  <td><strong>car</strong></td>
+  <td>1</td>
+  <td>78</td>
+  <td>7</td>
+  <td>14</td>
+</tr>
+<tr>
+  <td><strong>person</strong></td>
+  <td>12</td>
+  <td>9</td>
+  <td>72</td>
+  <td>7</td>
+</tr>
+<tr>
+  <td><strong>motorcycle</strong></td>
+  <td>1</td>
+  <td>14</td>
+  <td>5</td>
+  <td>80</td>
+</tr>
+</tbody></table>
+
+
+<p>The per-class accuracy, sensitivity and precision were:</p>
+
+<table>
+<thead>
+<tr>
+  <th></th>
+  <th>plane</th>
+  <th>car</th>
+  <th>person</th>
+  <th>motorcycle</th>
+</tr>
+</thead>
+<tbody><tr>
+  <td>accuracy</td>
+  <td>88.5%</td>
+  <td>87.3%</td>
+  <td>84.25%</td>
+  <td>89.0%</td>
+</tr>
+<tr>
+  <td>sensitivity</td>
+  <td>68.0%</td>
+  <td>78.0%</td>
+  <td>72.0%</td>
+  <td>80.0%</td>
+</tr>
+<tr>
+  <td>precision</td>
+  <td>82.9%</td>
+  <td>72.9%</td>
+  <td>67.3%</td>
+  <td>76.9%</td>
+</tr>
+</tbody></table>
+
+
+<h2 id="7-conclusion">7. Conclusion</h2>
+
+<p>The results are significantly about chance based on color histograms alone, which is good.  Based on existing image recognitino results we would likely obtain better results if we added more features using feature extractors like sift or HoG.  </p>
+
+<p>Time was a major problem for the current implementation.  It was specifically the stage of converting colors for the patches into histogram counts.  Vectorization was able to cut the time in half but this was still the longest taking step in the pipeline.  We could of possibly have skipped this step altogether as well and fed the rgb values directly into the clustering algorithm.</p></div></body>
+</html>

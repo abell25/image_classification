@@ -2,7 +2,7 @@ function [y_pred, score] = Pipeline(train_imgs, test_imgs, train_classes, test_c
         params=[patches_per_image=50, patch_dim=30, num_color_buckets=4, num_centers=100], ...
         algs={'random', 'colorhist', 'kmeans', 'max_counts', 'svm'})
 
-  q = 1; %be quiet!
+  q = 0; %be quiet!
   patches_per_image = params(1);
   patch_dim = params(2);
   num_color_buckets = params(3);

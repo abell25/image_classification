@@ -1,6 +1,5 @@
-Computer Vision - HW5
-
-author: Anthony Bell
+## Image classification pipeline
+> author: Anthony Bell
 
 This project constructs a image category classification pipeline.
 

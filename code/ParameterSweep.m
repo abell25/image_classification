@@ -1,6 +1,6 @@
 function [scores, cv_scores, params, total_times] = ParameterSweep(clf, ...
                         train_imgs, test_imgs, train_classes, test_classes, ...
-                        sweep_vals, num_splits=3, test_percent=0.3, use_parallel=1)
+                        sweep_vals, num_splits, test_percent=0.3, use_parallel=1)
 
   params = allCombinations(sweep_vals);
   printf('running a parameter sweep with %d unique combinations\n', rows(params));
@@ -10,7 +10,7 @@ function [scores, cv_scores, params, total_times] = ParameterSweep(clf, ...
   total_times = [];
 
   f = @(j) BootstrapPredict(clf, train_imgs, test_imgs, train_classes, test_classes, ...
-             params(j,:), num_splits=3, test_percent=0.3);
+             params(j,:), num_splits, test_percent=0.3);
 
   if use_parallel,
       [cv_scores_arr all_times] = pararrayfun(nproc, f, [1:rows(params)], 'UniformOutput', false);
