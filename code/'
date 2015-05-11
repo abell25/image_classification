@@ -1,0 +1,203 @@
+1;
+pkg load image;
+pkg load statistics;
+pkg load parallel;
+
+% you will have to set this to the location of you current installation of libsvm
+% addpath '/home/tony/octave/libsvm-3.20/matlab';
+
+if !exist('train_imgs', 'var')
+    printf('loading images\n'); tic;
+    [train_imgs, train_classes, test_imgs, test_classes] = TrainTestSplitImages()
+    printf('completed in %d seconds\n', toc);
+else
+    printf('images already loaded!\n');
+end
+
+%%%%%%%%%%%%%%%%%%%%%%% Exploratory Functions %%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+function [img_all] = seeAllClasses(images, num_examples)
+    image_idxs = round(linspace(1, size(images)(2), 4*num_examples));
+    small_imgs = {}; 
+    for k=1:columns(image_idxs)
+        img = images{image_idxs(k)};
+        small_imgs{k} = imresize(img, [100, 100]);
+    end
+    img_all = CombinePatches(small_imgs, num_examples, 4);
+endfunction
+
+function [all_combined] = seeAllClassesPatches(images, num_examples)
+    image_idxs = round(linspace(1, size(images)(2), 4*num_examples));
+    all_patches = {};
+    for k=1:columns(image_idxs)
+      patches = ExtractRandomPatches(images{image_idxs(k)}, 100, 25);
+      all_patches{k} = CombinePatches(patches, 10, 10);
+    end
+    all_combined = CombinePatches(all_patches, num_examples, 4);
+endfunction
+
+function viewData(images, num_examples, num_patch_examples)
+    figure(1);
+    img_classes = seeAllClasses(images, num_examples);
+    imshow(img_classes);
+    
+    figure(2);
+    patches_classes = seeAllClassesPatches(images, num_patch_examples);
+    imshow(patches_classes);
+endfunction
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+function [score, parameters] = Predict(train_imgs, test_imgs, train_classes, test_classes, args=[10,20,3,20], train_subset=0, test_subset=0)
+
+    patches_per_image = args(1);
+    patch_dim = args(2);
+    num_color_buckets = args(3);
+    num_centers = args(4);
+  
+    %[X_train, X_test, y_train, y_test] = ...
+    %    GenerateTrainingData(train_imgs, test_imgs, train_classes, test_classes,
+    %        patches_per_image, patch_dim, num_color_buckets, num_centers,
+    %        train_subset, test_subset);
+    
+    %model = svmtrain(y_train, X_train, '-s 0 -t 2 -c 1 -q');
+    %[y_pred, accuracy, prob_estimates] = svmpredict(y_test, X_test, model);
+    %score = mean(y_pred == y_test)*100;
+
+    parameters = args;
+  
+    [y_pred, score] = ...
+        Pipeline(train_imgs, test_imgs, train_classes, test_classes,
+                 patches_per_image, patch_dim, num_color_buckets, num_centers);
+
+    printf('patches_per_image: %d, patch_dim: %d, num_color_buckets: %d, num_centers: %d, train_subset: %d, test_subset: %d, time: %d sec, accuracy: %.2f\n', patches_per_image, patch_dim, num_color_buckets, num_centers, train_subset, test_subset, toc, score);
+
+endfunction
+
+function [best_score, best_params] = GetBestParameters(scores, params)
+    [best_score, best_row] = max(scores);
+    best_params = params(best_row,:);
+
+    printf('best scores found: %.2f\n', best_score); 
+    printf('patches/image: %d, patch_dim: %d, num_color_buckets: %d, num_centers: %d, num_examples: %d\n', ...
+            best_params(1), best_params(2), best_params(3), best_params(4), best_params(5));
+
+patches_per_image_list = [10,12];
+patch_dim_list = [20];
+num_color_buckets_list = [3];
+num_centers_list = [20];
+
+endfunction
+
+% for a given set of parameters, performs 1 round of bootstrap.
+function [cv_scores, total_time] = BootstrapPredict(train_imgs, test_imgs, train_classes, test_classes, ...
+    patches_per_image, patch_dim, num_color_buckets, num_centers, num_examples, num_splits=3, test_percent=0.3)
+
+    start_time = time();
+    
+    bootstrapSamples = GetBootstrapSamples(train_imgs, train_classes, num_splits, test_percent, num_examples);
+    train_size = length(bootstrapSamples{1,3});
+    test_size = length(bootstrapSamples{1,4});
+    for k=1:rows(bootstrapSamples),
+
+        [bs_train_imgs, bs_test_imgs, bs_train_classes, bs_test_classes] = bootstrapSamples{k,:};
+
+        %[X_train, X_test, y_train, y_test] = GenerateTrainingData(bs_train_imgs, bs_test_imgs,
+        %    bs_train_classes, bs_test_classes, patches_per_image, patch_dim, num_color_buckets, num_centers);
+    
+        %model = svmtrain(y_train, X_train, '-s 0 -t 2 -c 1 -q');
+        
+        %[y_pred, accuracy, prob_estimates] = svmpredict(y_test, X_test, model);
+        
+        %score = mean(y_pred == y_test)*100;
+
+        
+        [y_pred, score] = Pipeline(bs_train_imgs, bs_test_imgs,
+            bs_train_classes, bs_test_classes, patches_per_image, patch_dim, num_color_buckets, num_centers);
+
+        cv_scores(k) = score;
+    end
+    mean_score = mean(cv_scores);
+    end_time = time();
+    total_time = end_time - start_time;
+
+    printf('patches_per_image: %d, patch_dim: %d, num_color_buckets: %d, num_centers: %d, ',  ...
+           patches_per_image, patch_dim, num_color_buckets, num_centers);
+
+    printf('train/test: %d/%d, num_folds: %d, time: %d sec, cv scores: [%s], accuracy: %.2f\n', ...
+         train_size, test_size, num_bootstraps, total_time, disp(cv_scores)(1:end-1), mean_score);
+
+endfunction
+
+% Runs a parameter sweep over all possible values
+function [scores, cv_scores, params] = ParameterSweep(train_imgs, test_imgs, train_classes, test_classes, ...
+                        patches_per_image_list, patch_dim_list, num_color_buckets_list, num_centers_list, ...
+                        num_examples_list, num_splits=3, test_percent=0.3)
+
+  sweep_vals = {patches_per_image_list, patch_dim_list, num_color_buckets_list, num_centers_list, num_examples_list};
+  params = allCombinations(sweep_vals);
+
+  scores = [];
+  cv_scores = [];
+
+  f = @(j) BootstrapPredict(train_imgs, test_imgs, train_classes, test_classes, ...
+             params(j,1), params(j,2), params(j,3), params(j,4), params(5), num_splits=3, test_percent=0.3);
+
+  %cv_scores_arr = arrayfun(f, [1:rows(params)], 'UniformOutput', false);
+  [cv_scores_arr times] = pararrayfun(nproc, f, [1:rows(params)], 'UniformOutput', false);
+
+  for j=1:numel(cv_scores_arr)
+     cv_scores(j,:) = cv_scores_arr{j};
+     scores(j) = mean(cv_scores_arr{j});
+     params(j,end+1) = times{j};
+  end
+
+endfunction
+
+function plot_scores(scores, cv_scores, params, labels)
+    figure(1);
+    hold on;
+    for k=1:numel(labels),
+        subplot(2,3,k);
+        plot(params(:,k), scores, 'rx', 'linewidth', 2, params(:,k), cv_scores, 'bx', 'linewidth', 1);
+        ylabel('score');
+        xlabel(labels{k});
+        title(['score vs ', labels{k}]);
+    end
+
+endfunction
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% running parameter sweep %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+start_time = time();
+
+labels = {'patches per image', 'patch dim', 'num color buckets', 'num centers', 'num examples'};
+patches_per_image_list = [10,12];
+patch_dim_list = [20];
+num_color_buckets_list = [3];
+num_centers_list = [20];
+num_examples = [20];
+
+[scores, cv_scores, params] = ParameterSweep(train_imgs, test_imgs, train_classes, test_classes, ...
+                                             patches_per_image_list = [50], ...
+                                             patch_dim_list = [20], ...
+                                             num_color_buckets_list = [3], ... 
+                                             num_centers_list = [25], ...
+                                             num_examples_list=[16], ...
+                                             num_splits=3, test_percent=0.4);
+
+[best_score, best_params] = GetBestParameters(scores, params);
+
+end_time = time();
+printf('finished parameter sweep in %.2f seconds!\n', end_time-start_time);
+
+printf('final score on the test set: %.2f\n', test_score);
+plot_scores(scores, cv_scores, params, labels)
+
+printf('using the best parameters to predict on the test set\n');
+[test_score, parameters] = Predict(train_imgs, test_imgs, train_classes, test_classes, args=best_params);
+printf('best parameters on the test set scored %.2f\n', test_score);
+
